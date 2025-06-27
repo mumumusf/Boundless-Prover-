@@ -180,12 +180,28 @@ nvidia-smi -q
 ```
 
 ### 2. 配置 compose.yml
+
+`compose.yml` 是 Boundless Prover 的核心配置文件，定义了所有挖矿服务的运行参数。
+
+#### 编辑配置文件
 ```bash
 # 编辑配置文件
 nano compose.yml
 ```
 
-**配置示例**（根据您的机器调整）：
+#### 服务配置详解
+
+**x-exec-agent-common 服务**
+- **作用**：执行订单的预检过程，评估 Prover 是否可以对订单出价
+- **优化建议**：增加此服务的资源可以提高并发证明数量
+
+**gpu_prove_agent 服务**
+- **作用**：使用 GPU 处理已锁定的订单证明
+- **优化建议**：增加 CPU 和内存可以提高单个 GPU 的性能
+
+#### 配置示例（根据您的机器调整）
+
+**基础配置**：
 ```yaml
 x-exec-agent-common: &exec-agent-common
   <<: *agent-common
@@ -195,12 +211,107 @@ x-exec-agent-common: &exec-agent-common
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+
+gpu_prove_agent0:
+  <<: *agent-common
+  runtime: nvidia
+  mem_limit: 4G  # 每个 GPU 代理的内存
+  cpus: 4        # 每个 GPU 代理的 CPU 核心
+  entrypoint: /app/agent -t prove
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['0']    # GPU 设备 ID
+            capabilities: [gpu]
 ```
 
-**配置建议**：
-- **内存**：总内存的 80%
-- **CPU**：总核心数的 75%
-- **GPU**：确保所有 GPU 都被正确识别
+#### 不同硬件配置推荐
+
+**4GB 内存，4 核 CPU 配置**：
+```yaml
+x-exec-agent-common: &exec-agent-common
+  mem_limit: 3G    # 4GB * 0.8 = 3.2GB，取整为 3G
+  cpus: 3          # 4核 * 0.75 = 3核
+
+gpu_prove_agent0:
+  mem_limit: 3G
+  cpus: 3
+```
+
+**8GB 内存，8 核 CPU 配置**：
+```yaml
+x-exec-agent-common: &exec-agent-common
+  mem_limit: 6G    # 8GB * 0.8 = 6.4GB，取整为 6G
+  cpus: 6          # 8核 * 0.75 = 6核
+
+gpu_prove_agent0:
+  mem_limit: 6G
+  cpus: 6
+```
+
+**16GB 内存，16 核 CPU 配置**：
+```yaml
+x-exec-agent-common: &exec-agent-common
+  mem_limit: 12G   # 16GB * 0.8 = 12.8GB，取整为 12G
+  cpus: 12         # 16核 * 0.75 = 12核
+
+gpu_prove_agent0:
+  mem_limit: 12G
+  cpus: 12
+```
+
+#### 多 GPU 配置
+
+如果您有多个 GPU，可以为每个 GPU 创建独立的代理：
+
+```yaml
+# GPU 0 代理
+gpu_prove_agent0:
+  <<: *agent-common
+  runtime: nvidia
+  mem_limit: 4G
+  cpus: 4
+  entrypoint: /app/agent -t prove
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['0']
+            capabilities: [gpu]
+
+# GPU 1 代理
+gpu_prove_agent1:
+  <<: *agent-common
+  runtime: nvidia
+  mem_limit: 4G
+  cpus: 4
+  entrypoint: /app/agent -t prove
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['1']
+            capabilities: [gpu]
+```
+
+#### 配置优化原则
+
+| 资源类型 | 推荐分配比例 | 说明 |
+|----------|-------------|------|
+| 内存 | 总内存的 80% | 留 20% 给系统和其他进程 |
+| CPU | 总核心数的 75% | 留 25% 给系统和其他进程 |
+| GPU | 100% | 全部用于挖矿 |
+
+**⚠️ 重要提示**：
+- 逐步调整资源，不要一次性大幅增加
+- 确保系统有足够资源运行其他进程
+- 高负载时注意 GPU 温度
+- 修改前备份原始配置文件
+- 每次修改后测试服务是否正常运行
 
 ## 网络配置
 
